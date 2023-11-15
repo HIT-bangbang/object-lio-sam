@@ -254,6 +254,7 @@ public:
     sensor_msgs::Imu imuConverter(const sensor_msgs::Imu& imu_in)
     {
         sensor_msgs::Imu imu_out = imu_in;
+        //这里把imu的数据旋转到前左上坐标系下，可以参考
         // rotate acceleration
         Eigen::Vector3d acc(imu_in.linear_acceleration.x, imu_in.linear_acceleration.y, imu_in.linear_acceleration.z);
         acc = extRot * acc;
@@ -266,14 +267,17 @@ public:
         imu_out.angular_velocity.x = gyr.x();
         imu_out.angular_velocity.y = gyr.y();
         imu_out.angular_velocity.z = gyr.z();
+        // 磁力计的姿态信息
         // rotate roll pitch yaw
         Eigen::Quaterniond q_from(imu_in.orientation.w, imu_in.orientation.x, imu_in.orientation.y, imu_in.orientation.z);
         Eigen::Quaterniond q_final = q_from * extQRPY;
+         
         imu_out.orientation.x = q_final.x();
         imu_out.orientation.y = q_final.y();
         imu_out.orientation.z = q_final.z();
         imu_out.orientation.w = q_final.w();
-
+        
+        // 简单检验一下结果是否合法
         if (sqrt(q_final.x()*q_final.x() + q_final.y()*q_final.y() + q_final.z()*q_final.z() + q_final.w()*q_final.w()) < 0.1)
         {
             ROS_ERROR("Invalid quaternion, please use a 9-axis IMU!");
@@ -302,7 +306,10 @@ double ROS_TIME(T msg)
     return msg->header.stamp.toSec();
 }
 
-
+/**
+ * @description: 取出来thisImuMsg中的角度，赋给三个变量
+ * @return {*}
+ */
 template<typename T>
 void imuAngular2rosAngular(sensor_msgs::Imu *thisImuMsg, T *angular_x, T *angular_y, T *angular_z)
 {

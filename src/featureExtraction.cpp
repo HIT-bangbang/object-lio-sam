@@ -39,6 +39,7 @@ public:
 
     FeatureExtraction()
     {
+        // 定阅了imageProjection.cpp发来的点云话题
         subLaserCloudInfo = nh.subscribe<lio_sam::cloud_info>("lio_sam/deskew/cloud_info", 1, &FeatureExtraction::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
 
         pubLaserCloudInfo = nh.advertise<lio_sam::cloud_info> ("lio_sam/feature/cloud_info", 1);
@@ -67,6 +68,7 @@ public:
     {
         cloudInfo = *msgIn; // new cloud info
         cloudHeader = msgIn->header; // new cloud header
+        // 提取出来的有效点，把ros的格式转换成PCL格式
         pcl::fromROSMsg(msgIn->cloud_deskewed, *extractedCloud); // new cloud for extraction
 
         calculateSmoothness();

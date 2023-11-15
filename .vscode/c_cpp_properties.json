@@ -7,7 +7,8 @@
                 "/opt/ros/noetic/include",
                 "/usr/include/eigen3",
                 "/usr/include/opencv4",
-                "/usr/include/pcl-1.10"
+                "/usr/include/pcl-1.10",
+                "/home/bang/liosam_ws/devel/include/"
             ],
             "defines": [],
             "compilerPath": "/usr/lib/ccache/gcc",
