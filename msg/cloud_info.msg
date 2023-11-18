@@ -33,3 +33,5 @@ sensor_msgs/PointCloud2 key_frame_cloud
 sensor_msgs/PointCloud2 key_frame_color
 sensor_msgs/PointCloud2 key_frame_poses
 sensor_msgs/PointCloud2 key_frame_map
+
+jsk_recognition_msgs/BoundingBoxArray BBoxArray

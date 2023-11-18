@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   geometry_msgs
   nav_msgs
+  jsk_recognition_msgs
   message_generation
   visualization_msgs
 )
@@ -44,6 +45,7 @@ generate_messages(
   geometry_msgs
   std_msgs
   nav_msgs
+  jsk_recognition_msgs
   sensor_msgs
 )
 
@@ -56,6 +58,7 @@ catkin_package(
   nav_msgs
   geometry_msgs
   sensor_msgs
+  jsk_recognition_msgs
   message_runtime
   message_generation
   visualization_msgs
