@@ -17,6 +17,9 @@
 
 #include <gtsam/nonlinear/ISAM2.h>
 
+#include "jsk_recognition_msgs/BoundingBox.h"
+#include "jsk_recognition_msgs/BoundingBoxArray.h"
+
 using namespace gtsam;
 
 using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
@@ -1121,6 +1124,31 @@ public:
         transPointAssociateToMap = trans2Affine3f(transformTobeMapped);
     }
 
+    void BBboxOptimization()
+    {
+        updatePointAssociateToMap();
+
+        //使用openmp进行并行加速
+        #pragma omp parallel for num_threads(numberOfCores)
+        // 遍历当前帧的所有BBbox
+        for (int i = 0; i < cloudInfo.BBoxArray.boxes.size(); i++)
+        {
+            PointType pointOri, pointSel, coeff;
+            jsk_recognition_msgs::BoundingBox BBboxi;
+            std::vector<int> pointSearchInd;
+            std::vector<float> pointSearchSqDis;
+
+            //取出这个检测框的中心坐标
+            BBboxi = cloudInfo.BBoxArray.boxes[i];
+            pointOri.x = BBboxi.pose.position.x;
+            pointOri.y = BBboxi.pose.position.y;
+            pointOri.z = BBboxi.pose.position.z;
+
+            //将这个点，通过先验的位姿转换到局部地图坐标系下（局部地图坐标系就是全局世界坐标系）
+            pointAssociateToMap(&pointOri, &pointSel);
+                                
+        }
+    }
     void cornerOptimization()
     {
         updatePointAssociateToMap();
@@ -1951,6 +1979,13 @@ public:
         globalPath.poses.push_back(pose_stamped);
     }
 
+    /**
+     * @description: 这里发布了两个里程计话题。
+     * pubLaserOdometryGlobal发布的是回环优化后的odom数据；
+     * pubLaserOdometryIncremental则是没有经过回环优化的里程计数据，这是给IMU预计分节点用的。回环的跳变对于imu预计分的因子图优化是灾难性的
+     * 如果没有检测到闭环，则这两个是一样的。
+     * @return {*}
+     */
     void publishOdometry()
     {
         // Publish odometry for ROS (global)

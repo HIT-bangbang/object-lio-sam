@@ -42,6 +42,7 @@ public:
         // 定阅了imageProjection.cpp发来的点云话题
         subLaserCloudInfo = nh.subscribe<lio_sam::cloud_info>("lio_sam/deskew/cloud_info", 1, &FeatureExtraction::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
 
+        // 将加入了提取到边缘点和面点后的cloud_info发布出去，被imagePrajection接收
         pubLaserCloudInfo = nh.advertise<lio_sam::cloud_info> ("lio_sam/feature/cloud_info", 1);
         pubCornerPoints = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/feature/cloud_corner", 1);
         pubSurfacePoints = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/feature/cloud_surface", 1);
@@ -255,6 +256,7 @@ public:
         cloudInfo.cloud_corner  = publishCloud(pubCornerPoints,  cornerCloud,  cloudHeader.stamp, lidarFrame);
         cloudInfo.cloud_surface = publishCloud(pubSurfacePoints, surfaceCloud, cloudHeader.stamp, lidarFrame);
         // publish to mapOptimization
+        cloudInfo.BBoxArray = cloudInfo.BBoxArray;
         pubLaserCloudInfo.publish(cloudInfo);
     }
 };

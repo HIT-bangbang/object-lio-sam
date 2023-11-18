@@ -1,5 +1,8 @@
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
+#include "jsk_recognition_msgs/BoundingBox.h"
+#include "jsk_recognition_msgs/BoundingBoxArray.h"
+#include "mymsgs/PointWithBBox.h"
 
 struct VelodynePointXYZIRT
 {
@@ -43,6 +46,7 @@ private:
     std::mutex odoLock;
 
     ros::Subscriber subLaserCloud;
+    ros::Subscriber subBBox;            //订阅检测框BoundingBoxArray
     ros::Publisher  pubLaserCloud;
     
     ros::Publisher pubExtractedCloud;
@@ -56,6 +60,9 @@ private:
 
     std::deque<sensor_msgs::PointCloud2> cloudQueue;
     sensor_msgs::PointCloud2 currentCloudMsg;
+
+    jsk_recognition_msgs::BoundingBoxArray currentBBboxMsg;
+    std::deque<jsk_recognition_msgs::BoundingBoxArray> BBboxQueue;
 
     double *imuTime = new double[queueLength];
     double *imuRotX = new double[queueLength];
@@ -94,9 +101,15 @@ public:
         // 订阅imu数据，里程计数据，原始点云数据
         subImu        = nh.subscribe<sensor_msgs::Imu>(imuTopic, 2000, &ImageProjection::imuHandler, this, ros::TransportHints().tcpNoDelay());
         subOdom       = nh.subscribe<nav_msgs::Odometry>(odomTopic+"_incremental", 2000, &ImageProjection::odometryHandler, this, ros::TransportHints().tcpNoDelay());
-        subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 5, &ImageProjection::cloudHandler, this, ros::TransportHints().tcpNoDelay());
-        // 发布运动补偿后的点云和点云信息
+        
+        // 订阅点云和检测框二合一数据
+        subLaserCloud = nh.subscribe<mymsgs::PointWithBBox>(pointCloudTopic, 5, &ImageProjection::cloudHandler, this, ros::TransportHints().tcpNoDelay());
+
+
+        //subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 5, &ImageProjection::cloudHandler, this, ros::TransportHints().tcpNoDelay());
+        // 发布运动补偿后的点云，这个主要用来rviz可视化
         pubExtractedCloud = nh.advertise<sensor_msgs::PointCloud2> ("lio_sam/deskew/cloud_deskewed", 1);
+        // 发布运动补偿后的点云和检测框二合一信息，这个被FeatureExtration订阅。
         pubLaserCloudInfo = nh.advertise<lio_sam::cloud_info> ("lio_sam/deskew/cloud_info", 1);
 
         allocateMemory();
@@ -195,14 +208,20 @@ public:
     }
 
     /**
-     * @description: 点云的回调
+     * @description: 点云+检测框PointWithBBox消息的回调
      * @param {PointCloud2ConstPtr&} laserCloudMsg 原始的激光雷达的点云话题信息
      * @return {*}
      */
-    void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
+    void cloudHandler(const mymsgs::PointWithBBoxConstPtr& PointWithBBox)
     {
-        // 缓存点云消息 
-        if (!cachePointCloud(laserCloudMsg))
+        // 先处理里面的点云
+        // 取出消息里面的点云消息
+        const sensor_msgs::PointCloud2 laserCloudMsg = PointWithBBox->CloudMsg;
+        //取出检测框数组
+        const jsk_recognition_msgs::BoundingBoxArray bboxarray = PointWithBBox->BBboxArray;
+        
+        // 缓存点云消息，并且检查是否有两帧以上的点云，检查点云格式是否合格，否则在这里就直接返回了
+        if (!cachePointCloudWithBBbox(laserCloudMsg, bboxarray))
             return;
 
         //获取运动补偿所需要的信息
@@ -223,10 +242,14 @@ public:
      * @param {PointCloud2ConstPtr&} laserCloudMsg
      * @return {*}
      */
-    bool cachePointCloud(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
+    bool cachePointCloudWithBBbox(const sensor_msgs::PointCloud2 laserCloudMsg, jsk_recognition_msgs::BoundingBoxArray bboxarray)
     {
+
+        // 检测框入队列
+        BBboxQueue.push_back(bboxarray);
+
         // cache point cloud
-        cloudQueue.push_back(*laserCloudMsg);
+        cloudQueue.push_back(laserCloudMsg);
         // 确保队列里有大于2帧以上的点云数量
         if (cloudQueue.size() <= 2)
             return false;
@@ -234,7 +257,12 @@ public:
         // 缓存了足够多的点云
         // convert cloud
         currentCloudMsg = std::move(cloudQueue.front());//拿出来第一帧
+        currentBBboxMsg = std::move(BBboxQueue.front());//拿出来第一帧
+
         cloudQueue.pop_front();// 从队列中删除
+        BBboxQueue.pop_front();
+
+
         // 如果是VELODYNE的雷达，直接使用pcl的库将ros格式转换成pcl的点云格式
         if (sensor == SensorType::VELODYNE || sensor == SensorType::LIVOX)
         {
@@ -733,6 +761,7 @@ public:
     {
         cloudInfo.header = cloudHeader;
         cloudInfo.cloud_deskewed  = publishCloud(pubExtractedCloud, extractedCloud, cloudHeader.stamp, lidarFrame);
+        cloudInfo.BBoxArray = currentBBboxMsg;
         pubLaserCloudInfo.publish(cloudInfo);
     }
 };
