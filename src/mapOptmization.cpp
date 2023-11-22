@@ -1,4 +1,5 @@
 #include "utility.h"
+#include <utility>
 #include "lio_sam/cloud_info.h"
 #include "lio_sam/save_map.h"
 
@@ -75,6 +76,8 @@ public:
     ros::Publisher pubRecentKeyFrame;
     ros::Publisher pubCloudRegisteredRaw;
     ros::Publisher pubLoopConstraintEdge;
+    ros::Publisher pubbbox;
+
 
     ros::Publisher pubSLAMInfo;
 
@@ -103,9 +106,19 @@ public:
     pcl::PointCloud<PointType>::Ptr laserCloudOri;
     pcl::PointCloud<PointType>::Ptr coeffSel;
 
+    jsk_recognition_msgs::BoundingBoxArray BoxsCur;
+    jsk_recognition_msgs::BoundingBoxArray BoxsCurTrans;
+    jsk_recognition_msgs::BoundingBoxArray BoxsLast;
+    std::vector<std::pair<jsk_recognition_msgs::BoundingBox, jsk_recognition_msgs::BoundingBox>> bbxmatched;
+
+    std::vector<PointType> BboxVec; // corner point holder for parallel computation
+    std::vector<PointType> coeffSelBboxVec;
+    std::vector<bool> OriBboxFlag;
+
     std::vector<PointType> laserCloudOriCornerVec; // corner point holder for parallel computation
     std::vector<PointType> coeffSelCornerVec;
     std::vector<bool> laserCloudOriCornerFlag;
+
     std::vector<PointType> laserCloudOriSurfVec; // surf point holder for parallel computation
     std::vector<PointType> coeffSelSurfVec;
     std::vector<bool> laserCloudOriSurfFlag;
@@ -183,6 +196,8 @@ public:
         pubHistoryKeyFrames   = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/icp_loop_closure_history_cloud", 1);
         pubIcpKeyFrames       = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/icp_loop_closure_corrected_cloud", 1);
         pubLoopConstraintEdge = nh.advertise<visualization_msgs::MarkerArray>("/lio_sam/mapping/loop_closure_constraints", 1);
+        
+        pubbbox = nh.advertise<jsk_recognition_msgs::BoundingBoxArray>("/lio_sam/mapping/bbox2", 1);
 
         pubRecentKeyFrames    = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/map_local", 1);
         pubRecentKeyFrame     = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/cloud_registered", 1);
@@ -215,6 +230,10 @@ public:
 
         laserCloudOri.reset(new pcl::PointCloud<PointType>());
         coeffSel.reset(new pcl::PointCloud<PointType>());
+
+        BboxVec.resize(20);
+        BboxVec.resize(20);
+        OriBboxFlag.resize(20);
 
         laserCloudOriCornerVec.resize(N_SCAN * Horizon_SCAN);
         coeffSelCornerVec.resize(N_SCAN * Horizon_SCAN);
@@ -250,6 +269,8 @@ public:
 
         // extract info and feature cloud
         // 取出cloud_info中的角点和面点
+        BoxsCur = cloudInfo.BBoxArray; // 取出检测框
+        BoxsCurTrans= cloudInfo.BBoxArray;
         cloudInfo = *msgIn;
         pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);   // 将角点转换为pcl格式
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);     // 面点点转换为pcl格式
@@ -309,6 +330,48 @@ public:
         po->intensity = pi->intensity;
     }
 
+    void BoxsAssociateToMap(jsk_recognition_msgs::BoundingBoxArray BoxsCurori)
+    {
+        for (int i = 0; i < BoxsCurori.boxes.size(); i++)
+        {
+
+            //取出这个检测框的中心坐标
+            Eigen::Vector3f BBboxTin(BoxsCurori.boxes[i].pose.position.x,
+                                    BoxsCurori.boxes[i].pose.position.y,
+                                    BoxsCurori.boxes[i].pose.position.z);
+
+            // 取出旋转
+            Eigen::Quaternionf BBboxquaterIn;
+            BBboxquaterIn.x() = BoxsCurori.boxes[i].pose.orientation.x;
+            BBboxquaterIn.y() = BoxsCurori.boxes[i].pose.orientation.y;
+            BBboxquaterIn.z() = BoxsCurori.boxes[i].pose.orientation.z;
+            BBboxquaterIn.w() = BoxsCurori.boxes[i].pose.orientation.w;
+            
+            // Eigen::Vector3f BBboxTout;
+            Eigen::Vector3f BBboxTout =  transPointAssociateToMap * BBboxTin;
+
+            Eigen::Quaternionf BBboxquaterOut =  Eigen::Quaternionf(transPointAssociateToMap.rotation())*BBboxquaterIn  ;
+            
+            // BBboxTout.x() = transPointAssociateToMap(0,0) * BBboxTin.x() + transPointAssociateToMap(0,1) * BBboxTin.y()  + transPointAssociateToMap(0,2) * BBboxTin.z()  + transPointAssociateToMap(0,3);
+            // BBboxTout.y() = transPointAssociateToMap(1,0) * BBboxTin.x() + transPointAssociateToMap(1,1) * BBboxTin.y()  + transPointAssociateToMap(1,2) * BBboxTin.z()  + transPointAssociateToMap(1,3);
+            // BBboxTout.z() = transPointAssociateToMap(2,0) * BBboxTin.x() + transPointAssociateToMap(2,1) * BBboxTin.y()  + transPointAssociateToMap(2,2) * BBboxTin.z()  + transPointAssociateToMap(2,3);
+            
+            // 重新赋值
+            BoxsCurTrans.boxes[i].header.frame_id = "map";
+            BoxsCurTrans.boxes[i].pose.position.x = BBboxTout.x();
+            BoxsCurTrans.boxes[i].pose.position.y = BBboxTout.y();
+            BoxsCurTrans.boxes[i].pose.position.z = BBboxTout.z();
+            BoxsCurTrans.boxes[i].pose.orientation.x = BBboxquaterOut.x();
+            BoxsCurTrans.boxes[i].pose.orientation.y = BBboxquaterOut.y();
+            BoxsCurTrans.boxes[i].pose.orientation.z = BBboxquaterOut.z();
+            BoxsCurTrans.boxes[i].pose.orientation.w = BBboxquaterOut.w();
+        }
+        BoxsCurTrans.header.frame_id = "map";
+        pubbbox.publish(BoxsCurTrans);
+
+    }
+
+    
     pcl::PointCloud<PointType>::Ptr transformPointCloud(pcl::PointCloud<PointType>::Ptr cloudIn, PointTypePose* transformIn)
     {
         pcl::PointCloud<PointType>::Ptr cloudOut(new pcl::PointCloud<PointType>());
@@ -1126,27 +1189,125 @@ public:
 
     void BBboxOptimization()
     {
+        //首先清空匹配对
+        bbxmatched.clear();
+
+
         updatePointAssociateToMap();
+        // 将所有检测框通过先验位姿转换到世界坐标系下
+        BoxsAssociateToMap(BoxsCur);
+        // 存一下共有的激光点有多少，用来计算权重
+        vector<int> bbxmatchednum;
 
-        //使用openmp进行并行加速
-        #pragma omp parallel for num_threads(numberOfCores)
-        // 遍历当前帧的所有BBbox
-        for (int i = 0; i < cloudInfo.BBoxArray.boxes.size(); i++)
+        if(BoxsLast.boxes.size()!= 0)
         {
-            PointType pointOri, pointSel, coeff;
-            jsk_recognition_msgs::BoundingBox BBboxi;
-            std::vector<int> pointSearchInd;
-            std::vector<float> pointSearchSqDis;
+            // 两帧的检测框之间进行匹配
+            // 遍历当前帧的检测框
+            for(int i=0;i<BoxsCurTrans.boxes.size();i++)
+            {
+                // 取出这个检测框内的点云
+                pcl::CropBox<pcl::PointXYZI> cropbox;
+                cropbox.setInputCloud(laserCloudCornerFromMapDS);
 
-            //取出这个检测框的中心坐标
-            BBboxi = cloudInfo.BBoxArray.boxes[i];
-            pointOri.x = BBboxi.pose.position.x;
-            pointOri.y = BBboxi.pose.position.y;
-            pointOri.z = BBboxi.pose.position.z;
+                Eigen::Vector4f downleft(
+                BoxsCurTrans.boxes[i].pose.position.x + BoxsCurTrans.boxes[i].dimensions.x,
+                BoxsCurTrans.boxes[i].pose.position.y + BoxsCurTrans.boxes[i].dimensions.y,
+                BoxsCurTrans.boxes[i].pose.position.z + BoxsCurTrans.boxes[i].dimensions.z,
+                1.0);
+                
+                Eigen::Vector4f topright(
+                BoxsCurTrans.boxes[i].pose.position.x - BoxsCurTrans.boxes[i].dimensions.x,
+                BoxsCurTrans.boxes[i].pose.position.y - BoxsCurTrans.boxes[i].dimensions.y,
+                BoxsCurTrans.boxes[i].pose.position.z - BoxsCurTrans.boxes[i].dimensions.z,
+                1.0);
+                cropbox.setMin(topright); //设置最小点
+                cropbox.setMax(downleft);//设置最大点
 
-            //将这个点，通过先验的位姿转换到局部地图坐标系下（局部地图坐标系就是全局世界坐标系）
-            pointAssociateToMap(&pointOri, &pointSel);
-                                
+                pcl::Indices clipped;
+
+                cropbox.filter(clipped);
+
+                int inboxCur =  clipped.size();
+
+                    // 遍历上一帧的检测框
+                    for(int j=0;j<BoxsLast.boxes.size();j++)
+                    {
+                        // 取出这个检测框内的点云
+                        pcl::CropBox<pcl::PointXYZI> cropbox2;
+                        cropbox2.setInputCloud(laserCloudCornerFromMapDS);
+
+                        Eigen::Vector4f downleft(
+                        BoxsLast.boxes[j].pose.position.x + BoxsLast.boxes[j].dimensions.x,
+                        BoxsLast.boxes[j].pose.position.y + BoxsLast.boxes[j].dimensions.y,
+                        BoxsLast.boxes[j].pose.position.z + BoxsLast.boxes[j].dimensions.z,
+                        1.0);
+                        
+                        Eigen::Vector4f topright(
+                        BoxsCur.boxes[j].pose.position.x - BoxsLast.boxes[j].dimensions.x,
+                        BoxsLast.boxes[j].pose.position.y - BoxsLast.boxes[j].dimensions.y,
+                        BoxsLast.boxes[j].pose.position.z - BoxsLast.boxes[j].dimensions.z,
+                        1.0);
+                        cropbox2.setMin(topright);   //设置最小点
+                        cropbox2.setMax(downleft);   //设置最大点
+
+                        pcl::Indices clipped2;
+
+                        cropbox2.filter(clipped2);
+
+                        int inboxLast = clipped2.size();
+                        int inboth = 0;
+
+                        // 两个vector取交集
+                        pcl::Indices both;
+                        sort(clipped.begin(), clipped.end());
+                        sort(clipped2.begin(), clipped2.end());
+                        set_intersection(clipped.begin(), clipped.end(), clipped2.begin(), clipped2.end(), back_inserter(both));
+                        
+                        // 如果即在检测框1又在检测框2中的点云数量都大于各自的90%，就认为这两帧中的这两个检测框是一个物体
+                        if(both.size()>0.5*clipped.size() && both.size()>0.5*clipped2.size())
+                        {                        
+                            ROS_INFO("both size: %d  ,clipped.size : %d ,clipped2.size : %d ",both.size(),clipped.size(),clipped2.size());
+                            // ROS_INFO("\033[1;32m get matched \033[0m");
+                            //把匹配对添加到vector里面去
+                            bbxmatched.push_back(std::make_pair(BoxsCur.boxes[i],BoxsLast.boxes[j]));
+                            bbxmatchednum.push_back(both.size());
+
+                            //找到一个就行了，直接退出。继续找下一个当前帧的BoxsCur.boxes[i]
+                            break;
+                        }
+                }
+
+            }
+            for (int i = 0; i < bbxmatched.size(); i++)
+            {
+                PointType coeff;
+                PointType pointOri;
+                pointOri.x = bbxmatched[i].first.pose.position.x;
+                pointOri.y = bbxmatched[i].first.pose.position.y;
+                pointOri.z = bbxmatched[i].first.pose.position.z;
+
+                // 残差
+                float ld2 = (bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)*(bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)+
+                            (bbxmatched[i].first.pose.position.y-bbxmatched[i].second.pose.position.y)*(bbxmatched[i].first.pose.position.y-bbxmatched[i].second.pose.position.y)+
+                            (bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z)*(bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z);
+                float la = (bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)/ld2;
+                float lb = (bbxmatched[i].first.pose.position.y-bbxmatched[i].second.pose.position.y)/ld2;
+                float lc = (bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z)/ld2;
+                // 一个简单的核函数，残差越大权重越低
+                float s = (1 - 0.9 * fabs(ld2)) * float(bbxmatchednum[i]);
+                coeff.x = s * la;
+                coeff.y = s * lb;
+                coeff.z = s * lc;
+                coeff.intensity = s * ld2;
+                // 如果残差小于10cm，就认为是一个有效的约束
+                if (s > 0.5) {
+                    BboxVec[i] = pointOri;
+                    coeffSelBboxVec[i] = coeff;
+                    OriBboxFlag[i] = true;
+                    ROS_INFO("\033[1;32m match  good %d \033[0m",i);
+                }
+            }
+
         }
     }
     void cornerOptimization()
@@ -1367,10 +1528,19 @@ public:
                 coeffSel->push_back(coeffSelSurfVec[i]);
             }
         }
+    
+        // combine BBbox coeffs
+        for (int i = 0; i < bbxmatched.size(); ++i){
+            if (OriBboxFlag[i] == true){
+                laserCloudOri->push_back(BboxVec[i]);
+                coeffSel->push_back(coeffSelBboxVec[i]);
+            }
+        }
         // reset flag for next iteration
         // 标志位清零
         std::fill(laserCloudOriCornerFlag.begin(), laserCloudOriCornerFlag.end(), false);
         std::fill(laserCloudOriSurfFlag.begin(), laserCloudOriSurfFlag.end(), false);
+        std::fill(OriBboxFlag.begin(), OriBboxFlag.end(), false);
     }
 
     /**
@@ -1544,6 +1714,7 @@ public:
 
                 cornerOptimization();//边缘点的优化
                 surfOptimization();//面点的优化
+                BBboxOptimization();//获取检测框的匹配
 
                 combineOptimizationCoeffs();
 
@@ -1605,6 +1776,10 @@ public:
 
         // 最终的结果也可以转成eigen的结构
         incrementalOdometryAffineBack = trans2Affine3f(transformTobeMapped);
+    
+        BoxsAssociateToMap(BoxsCur);
+        BoxsLast = BoxsCurTrans; //记录检测框
+
     }
 
     float constraintTransformation(float value, float limit)
