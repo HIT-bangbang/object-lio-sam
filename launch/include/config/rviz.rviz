@@ -479,7 +479,7 @@ Visualization Manager:
       Enabled: true
       Name: BoundingBoxArray
       Queue Size: 10
-      Topic: /detect3d/bbox
+      Topic: /lio_sam/mapping/bboxcur
       Unreliable: false
       Value: true
       alpha: 0.800000011920929
@@ -492,7 +492,7 @@ Visualization Manager:
       Enabled: true
       Name: BoundingBoxArray
       Queue Size: 10
-      Topic: /lio_sam/mapping/bbox2
+      Topic: /lio_sam/mapping/bboxlast
       Unreliable: false
       Value: true
       alpha: 0.800000011920929
@@ -517,7 +517,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 13.513466835021973
+      Distance: 33.45884704589844
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -533,9 +533,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4453984797000885
+      Pitch: 1.100398063659668
       Target Frame: base_link
-      Yaw: 0.9966671466827393
+      Yaw: 3.826667070388794
     Saved: ~
 Window Geometry:
   Displays:
@@ -551,5 +551,5 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1948
-  X: 1512
-  Y: 715
+  X: 1701
+  Y: 906
