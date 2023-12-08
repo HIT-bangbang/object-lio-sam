@@ -1294,7 +1294,6 @@ public:
                     // 遍历上一帧的检测框
                     for(int j=0;j<BoxsLast.boxes.size();j++)
                     {
-;                       
                         // 取出这个检测框内的点云
                         pcl::CropBox<pcl::PointXYZI> cropbox2;
                         cropbox2.setInputCloud(laserCloudCornerFromMapDS);
