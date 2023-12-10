@@ -1315,13 +1315,9 @@ public:
                         pcl::Indices clipped2;
 
                         cropbox2.filter(clipped2);
-
-                        int inboxLast = clipped2.size();
                         
-                        if(inboxLast == 0)
+                        if(clipped2.size() == 0)
                             continue;
-
-                        int inboth = 0;
 
                         // 两个vector取交集
                         pcl::Indices both;
@@ -1329,8 +1325,8 @@ public:
                         sort(clipped2.begin(), clipped2.end());
                         set_intersection(clipped.begin(), clipped.end(), clipped2.begin(), clipped2.end(), back_inserter(both));
                         
-                        // 如果即在检测框1又在检测框2中的点云数量都大于各自的90%，就认为这两帧中的这两个检测框是一个物体
-                        if(both.size()>=0 && both.size() >= 0.5*clipped.size() && both.size() >= 0.5*clipped2.size())
+                        // 如果即在检测框1又在检测框2中的点云数量都大于各自的80%，就认为这两帧中的这两个检测框是一个物体
+                        if(both.size()>=5 && both.size() >= 0.8*clipped.size() && both.size() >= 0.8*clipped2.size())
                         {                        
                             ROS_INFO("both size: %d  ,clipped.size : %d ,clipped2.size : %d ",both.size(),clipped.size(),clipped2.size());
                             // ROS_INFO("\033[1;32m get matched \033[0m");
@@ -1362,7 +1358,7 @@ public:
                 // 一个简单的核函数，残差越大权重越低
                 // float s =  (1.0 - fabs(ld2)) * 0.05*float(bbxmatchednum[i]);
                 float s =  (1.0 - fabs(ld2));
-
+                // float s =  (1.0 - fabs(ld2)) * sigmoid(0.05*float(bbxmatchednum[i]));
                 coeff.x = s * la;
                 coeff.y = s * lb;
                 coeff.z = s * lc;
@@ -1379,6 +1375,12 @@ public:
 
         }
     }
+
+    // float sigmoid(float x)
+    // {
+    //     return (1.0 / (1.0 + exp(-x)));
+    // }
+
     void cornerOptimization()
     {
         updatePointAssociateToMap();
