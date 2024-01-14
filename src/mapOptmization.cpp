@@ -1326,9 +1326,9 @@ public:
                         set_intersection(clipped.begin(), clipped.end(), clipped2.begin(), clipped2.end(), back_inserter(both));
                         
                         // 如果即在检测框1又在检测框2中的点云数量都大于各自的80%，就认为这两帧中的这两个检测框是一个物体
-                        if(both.size()>=5 && both.size() >= 0.8*clipped.size() && both.size() >= 0.8*clipped2.size())
+                        if(both.size()>=30 && both.size() >= 0.8*clipped.size() && both.size() >= 0.8*clipped2.size())
                         {                        
-                            ROS_INFO("both size: %d  ,clipped.size : %d ,clipped2.size : %d ",both.size(),clipped.size(),clipped2.size());
+                            // ROS_INFO("both size: %d  ,clipped.size : %d ,clipped2.size : %d ",both.size(),clipped.size(),clipped2.size());
                             // ROS_INFO("\033[1;32m get matched \033[0m");
                             //把匹配对添加到vector里面去
                             bbxmatched.push_back(std::make_pair(BoxsCurTrans.boxes[i],BoxsLast.boxes[j]));
@@ -1349,22 +1349,24 @@ public:
                 pointOri.z = bbxmatched[i].first.pose.position.z;
 
                 // 残差
-                float ld2 = (bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)*(bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)+
+                float ld2 = sqrt((bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)*(bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)+
                             (bbxmatched[i].first.pose.position.y-bbxmatched[i].second.pose.position.y)*(bbxmatched[i].first.pose.position.y-bbxmatched[i].second.pose.position.y)+
-                            (bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z)*(bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z);
+                            (bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z)*(bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z));
                 float la = (bbxmatched[i].first.pose.position.x-bbxmatched[i].second.pose.position.x)/ld2;
                 float lb = (bbxmatched[i].first.pose.position.y-bbxmatched[i].second.pose.position.y)/ld2;
                 float lc = (bbxmatched[i].first.pose.position.z-bbxmatched[i].second.pose.position.z)/ld2;
                 // 一个简单的核函数，残差越大权重越低
                 // float s =  (1.0 - fabs(ld2)) * 0.05*float(bbxmatchednum[i]);
-                float s =  (1.0 - fabs(ld2));
+                float s = 5.0 * (1.0 - fabs(ld2));
+                // float s =  0.0;
+
                 // float s =  (1.0 - fabs(ld2)) * sigmoid(0.05*float(bbxmatchednum[i]));
                 coeff.x = s * la;
                 coeff.y = s * lb;
                 coeff.z = s * lc;
                 coeff.intensity = s * ld2;
 
-                ROS_INFO("\033[1;32m ld2=%f s=%f  matchednum=%d \033[0m",ld2,s,bbxmatchednum[i]);
+                // ROS_INFO("\033[1;32m ld2=%f s=%f  matchednum=%d \033[0m",ld2,s,bbxmatchednum[i]);
                 if (s > 0.1) {
                     ROS_INFO("\033[1;32m match  good %d \033[0m",i);
                     BboxVec[i] = pointOri;
@@ -1381,6 +1383,19 @@ public:
     //     return (1.0 / (1.0 + exp(-x)));
     // }
 
+    bool inbox(PointType point,jsk_recognition_msgs::BoundingBox box)
+    {
+        float dis = sqrt((point.x-box.pose.position.x)*(point.x-box.pose.position.x)
+                    + (point.y-box.pose.position.y)*(point.y-box.pose.position.y)
+                    + (point.z-box.pose.position.z)*(point.z-box.pose.position.z));
+        if(dis <= 0.8 * sqrt(pow(box.dimensions.x,2)+pow(box.dimensions.y,2)+pow(box.dimensions.z,2))){
+            return true;
+        }
+        else{
+            return false;
+        }       
+    }
+    
     void cornerOptimization()
     {
         updatePointAssociateToMap();
@@ -1397,6 +1412,30 @@ public:
             pointOri = laserCloudCornerLastDS->points[i];//取出这个点的坐标
             //将这个点，通过先验的位姿转换到局部地图坐标系下（局部地图坐标系就是全局世界坐标系）
             pointAssociateToMap(&pointOri, &pointSel);
+
+            //动态点剔除
+
+            bool dynam = false;
+            for(int a = 0; a < BoxsCurTrans.boxes.size();a++)
+            {
+                if(inbox(pointSel,BoxsCurTrans.boxes[a]))
+                {
+                    dynam = true;
+                    for (int b = 0; b < bbxmatched.size(); b++)
+                    {
+                        if(inbox(pointSel,bbxmatched[b].first))
+                        {
+                            dynam = false;
+                            break;
+                        }
+                    }
+                }
+                if(dynam == true) break;
+            }
+            // 如果是动态点，直接跳过这个点
+            if(dynam == true) continue;
+
+
             //进行最近临查找，在角点地图里面寻找距离当前点较近的五个点
             // pointSel 在pointSel周围搜索
             // 5 找五个
@@ -1511,6 +1550,29 @@ public:
             // 同样找5个面点
             pointOri = laserCloudSurfLastDS->points[i];
             pointAssociateToMap(&pointOri, &pointSel); 
+
+            //动态点剔除
+
+            bool dynam = false;
+            for(int a = 0; a < BoxsCurTrans.boxes.size();a++)
+            {
+                if(inbox(pointSel,BoxsCurTrans.boxes[a]))
+                {
+                    dynam = true;
+                    for (int b = 0; b < bbxmatched.size(); b++)
+                    {
+                        if(inbox(pointSel,bbxmatched[b].first))
+                        {
+                            dynam = false;
+                            break;
+                        }
+                    }
+                }
+                if(dynam == true) break;
+            }
+            // 如果是动态点，直接跳过这个点
+            if(dynam == true) continue;
+
             kdtreeSurfFromMap->nearestKSearch(pointSel, 5, pointSearchInd, pointSearchSqDis);
 
             Eigen::Matrix<float, 5, 3> matA0;
@@ -1783,9 +1845,9 @@ public:
                 laserCloudOri->clear();
                 coeffSel->clear();
 
+                BBboxOptimization();//获取检测框的匹配
                 cornerOptimization();//边缘点的优化
                 surfOptimization();//面点的优化
-                BBboxOptimization();//获取检测框的匹配
 
                 combineOptimizationCoeffs();
 
